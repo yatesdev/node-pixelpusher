@@ -23,6 +23,9 @@ new PixelPusher().on('discover', function(controller) {
         console.log('TIMEOUT : PixelPusher at address [' + controller.params.ipAddress + '] with MAC (' + controller.params.macAddress + ') has timed out. Awaiting re-discovery....');
         if (!!timer) clearInterval(timer);
     });
+
+    console.log(controller.params.pixelpusher)
+
     // aquire the number of strips that the controller has said it
     // has connected via the pixel.rc config file
     var NUM_STRIPS = controller.params.pixelpusher.numberStrips;
@@ -36,19 +39,36 @@ new PixelPusher().on('discover', function(controller) {
     // create a loop that will send commands to the PP to update the strip
     var UPDATE_FREQUENCY_MILLIS = 15;// this is just faster than 60 FPS
 
+    var waveHeight = PIXELS_PER_STRIP/2;
+    var waveWidth = 10;
+    var wavePosition = 0;
+
+
     timer = setInterval(function() {
         // create an array to hold the data for all the strips at once
         // loop
         var strips = [];
-        for (var i = 0; i< STRIPS_PER_PACKET; i ++){
+        for (var i = 0; i< NUM_STRIPS; i ++){
             var stripId = i;
             var s = new PixelStrip(stripId,PIXELS_PER_STRIP);
 
+            var startIdx = waveHeight+wavePosition;
+            for (var i = startIdx, j = waveWidth; i <PIXELS_PER_STRIP &&  i > waveHeight && j > 0; i --, j--){
+                // right wave
+                var p = s.getPixel(i);
+                p.setColor(255,0,0,(j/waveWidth));
+            }
+
+            var startIdx = waveHeight-wavePosition;
+            for (var i = startIdx, j = waveWidth; i > 0 &&  i < waveHeight && j > 0; i ++, j--){
+                // right wave
+                var p = s.getPixel(i);
+                p.setColor(255,0,0,(j/waveWidth));
+            }
+
+            // to show combined systems also set a random pixel blue
             // set a random pixel blue
             s.getRandomPixel().setColor(0,0,255, 0.1);
-            // set the whole strip blue
-            //s.setStripColor(0,0,255, 0.1);
-
             // render the strip data into the correct format for sending
             // to the pixel pusher controller
             var renderedStripData = s.getStripData();
@@ -57,7 +77,11 @@ new PixelPusher().on('discover', function(controller) {
         }
         // inform the controller of the new strip frame
         controller.refresh(strips);
+
+        wavePosition = (wavePosition + 1) % waveHeight;
+
     }, UPDATE_FREQUENCY_MILLIS);
+
 }).on('error', function(err) {
   console.log('PixelPusher Error: ' + err.message);
 });
