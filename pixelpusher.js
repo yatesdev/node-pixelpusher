@@ -37,7 +37,7 @@ var PixelPusher = function(options) {
       cycleTime = message.readUInt32LE(28) / 1000;
       delta = message.readUInt32LE(36);
       if (delta > 5) {
-        cycleTime += 5; 
+        cycleTime += 5;
         controller.trim(controller);
       } else if ((delta === 0) && (cycleTime > 1)) cycleTime -= 1;
       controller.params.pixelpusher.updatePeriod = cycleTime;
@@ -154,8 +154,8 @@ Controller.prototype.refresh = function(strips) {
   updates = [];
   for (i = 0; i < strips.length; i++) {
     n = strips[i].number;
-    if ((n < 0) || (n >= self.params.pixelpusher.pixelsPerStrip)) {
-      throw new Error('strips must be numbered from 1..' + self.params.pixelpusher.pixelsPerStrip);
+    if ((n < 0) || (n >= self.params.pixelpusher.numberStrips)) {
+      throw new Error('strips must be numbered from 0..' + (self.params.pixelpusher.numberStrips-1+' current value ['+n+']'));
     }
 
     if (buffertools.equals(strips[i].data, self.strips[n])) continue;
@@ -163,6 +163,7 @@ Controller.prototype.refresh = function(strips) {
     strips[i].data.copy(self.strips[n]);
     updates.push(strips[i]);
   }
+
   strips = updates;
 
   packet = null;
