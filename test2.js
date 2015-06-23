@@ -24,8 +24,6 @@ new PixelPusher().on('discover', function(controller) {
         if (!!timer) clearInterval(timer);
     });
 
-    console.log(controller.params.pixelpusher)
-
     // aquire the number of strips that the controller has said it
     // has connected via the pixel.rc config file
     var NUM_STRIPS = controller.params.pixelpusher.numberStrips;

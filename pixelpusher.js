@@ -1,4 +1,7 @@
-// pixelpusher.js -- see the include file below courtesy of Jas Strong
+//******************************************************************************
+// Heroic Robotics Pixel Pusher Nodejs Library
+// Aaron Jones <aaron@inburst.io>
+//******************************************************************************
 
 var buffertools = require('buffertools'),
     dgram       = require('dgram'),
@@ -6,30 +9,17 @@ var buffertools = require('buffertools'),
     util        = require('util');
 
 
-var DEFAULT_LOGGER = {
-    error   : function(msg, props) { console.log(msg); if (!!props) console.trace(props.exception); },
-    warning : function(msg, props) { console.log(msg); if (!!props) console.log(props);             },
-    notice  : function(msg, props) { console.log(msg); if (!!props) console.log(props);             },
-    info    : function(msg, props) { console.log(msg); if (!!props) console.log(props);             },
-    debug   : function(msg, props) { console.log(msg); if (!!props) console.log(props);             }
-};
-
-
 var LISTENER_SOCKET_PORT = 7331;
-
 var CONTROLLER_TIMEOUT_THRESHOLD_MILLIS = 5000;
 var TIMEOUT_CHECK_MILLIS = 1000;
 
-
-
 var PixelPusher = function(options) {
-    var self = this;
+    var that = this;
 
-    if (!(self instanceof PixelPusher)) return new PixelPusher(options);
+    if (!(that instanceof PixelPusher)) return new PixelPusher(options);
 
-    self.options = options;
-    self.logger = DEFAULT_LOGGER;
-    self.controllers = {};
+    that.options = options;
+    that.controllers = {};
 
     //create a datagram socket listener and
     dgram.createSocket('udp4').on('message', function(message, rinfo) {
@@ -40,16 +30,16 @@ var PixelPusher = function(options) {
             params;
 
         // confirm proper message length
-        if (message.length < 48) return self.logger.debug('message too short (' + message.length + ' octets)', rinfo);
+        if (message.length < 48) return console.log('message too short (' + message.length + ' octets)');
 
         // aquire device mac address
         mac = message.slice(0, 6).toString('hex').match(/.{2}/g).join(':');
 
         // if we have already connected with this controller
         // do some processing but dont create a new controller reference
-        if (!!self.controllers[mac]) {
+        if (!!that.controllers[mac]) {
             // grab a reference to the controller instance
-            controller = self.controllers[mac];
+            controller = that.controllers[mac];
             // insure proper device type from message (looking for '2')
             if (controller.params.deviceType !== 2) return;
 
@@ -145,15 +135,16 @@ var PixelPusher = function(options) {
         }
         // build the controller object and keep a hash lookup of it
         // by mac address so we can locate it on future messages
-        self.controllers[mac] = new Controller(params);
+        var newController = new Controller(params);
+        that.controllers[mac] = newController;
         // emit to any listeners that we have discovered a new controller
-        self.emit('discover', self.controllers[mac]);
+        that.emit('discover', newController);
     }).on('listening', function() {
         // log that the socket listener has begun listening
-        self.logger.info('Socket listening for pixel pusher on udp://*:' + this.address().port);
+        console.log('Socket listening for pixel pusher on udp://*:' + this.address().port);
     }).on('error', function(err) {
-        self.logger.error('Error opening socket to detect PixelPusher', err);
-        self.emit('error', err);
+        console.log('Error opening socket to detect PixelPusher', err);
+        that.emit('error', err);
     }).bind(LISTENER_SOCKET_PORT);
 
     setInterval(function() {
@@ -196,7 +187,6 @@ var Controller = function(params) {
     if (!(that instanceof Controller)) return new Controller(params);
 
     that.params = params;
-    that.logger = DEFAULT_LOGGER;
 
     that.lastUpdated = new Date().getTime();
     that.nextUpdate = that.lastUpdated + that.params.pixelpusher.updatePeriod;
