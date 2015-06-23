@@ -48,8 +48,7 @@ new PixelPusher().on('discover', function(controller) {
         // create an array to hold the data for all the strips at once
         // loop
         var strips = [];
-        for (var i = 0; i< NUM_STRIPS; i ++){
-            var stripId = i;
+        for (var stripId = 0; stripId< NUM_STRIPS; stripId ++){
             var s = new PixelStrip(stripId,PIXELS_PER_STRIP);
 
             var startIdx = waveHeight+wavePosition;

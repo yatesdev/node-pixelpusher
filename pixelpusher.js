@@ -1,240 +1,390 @@
 // pixelpusher.js -- see the include file below courtesy of Jas Strong
 
-var buffertools = require('buffertools')
-  , dgram       = require('dgram')
-  , Emitter     = require('events').EventEmitter
-  , util        = require('util')
-  ;
+var buffertools = require('buffertools'),
+    dgram       = require('dgram'),
+    Emitter     = require('events').EventEmitter,
+    util        = require('util');
 
 
-var DEFAULT_LOGGER = { error   : function(msg, props) { console.log(msg); if (!!props) console.trace(props.exception); }
-                     , warning : function(msg, props) { console.log(msg); if (!!props) console.log(props);             }
-                     , notice  : function(msg, props) { console.log(msg); if (!!props) console.log(props);             }
-                     , info    : function(msg, props) { console.log(msg); if (!!props) console.log(props);             }
-                     , debug   : function(msg, props) { console.log(msg); if (!!props) console.log(props);             }
-                     };
+var DEFAULT_LOGGER = {
+    error   : function(msg, props) { console.log(msg); if (!!props) console.trace(props.exception); },
+    warning : function(msg, props) { console.log(msg); if (!!props) console.log(props);             },
+    notice  : function(msg, props) { console.log(msg); if (!!props) console.log(props);             },
+    info    : function(msg, props) { console.log(msg); if (!!props) console.log(props);             },
+    debug   : function(msg, props) { console.log(msg); if (!!props) console.log(props);             }
+};
+
+
+var LISTENER_SOCKET_PORT = 7331;
+
+var CONTROLLER_TIMEOUT_THRESHOLD_MILLIS = 5000;
+var TIMEOUT_CHECK_MILLIS = 1000;
+
 
 
 var PixelPusher = function(options) {
-  var self = this;
+    var self = this;
 
-  if (!(self instanceof PixelPusher)) return new PixelPusher(options);
+    if (!(self instanceof PixelPusher)) return new PixelPusher(options);
 
-  self.options = options;
-  self.logger = DEFAULT_LOGGER;
-  self.controllers = {};
+    self.options = options;
+    self.logger = DEFAULT_LOGGER;
+    self.controllers = {};
 
-  dgram.createSocket('udp4').on('message', function(message, rinfo) {
-    var controller, cycleTime, delta, mac, params;
+    //create a datagram socket listener and
+    dgram.createSocket('udp4').on('message', function(message, rinfo) {
+        var controller,
+            cycleTime,
+            delta,
+            mac,
+            params;
 
-    if (message.length < 48) return self.logger.debug('message too short (' + message.length + ' octets)', rinfo);
+        // confirm proper message length
+        if (message.length < 48) return self.logger.debug('message too short (' + message.length + ' octets)', rinfo);
 
-    mac = message.slice(0, 6).toString('hex').match(/.{2}/g).join(':');
-    if (!!self.controllers[mac]) {
-      controller = self.controllers[mac];
-      if (controller.params.deviceType !== 2) return;
+        // aquire device mac address
+        mac = message.slice(0, 6).toString('hex').match(/.{2}/g).join(':');
 
-      cycleTime = message.readUInt32LE(28) / 1000;
-      delta = message.readUInt32LE(36);
-      if (delta > 5) {
-        cycleTime += 5;
-        controller.trim(controller);
-      } else if ((delta === 0) && (cycleTime > 1)) cycleTime -= 1;
-      controller.params.pixelpusher.updatePeriod = cycleTime;
-      controller.params.pixelpusher.powerTotal = message.readUInt32LE(32);
-      controller.params.pixelpusher.deltaSequence = delta;
-      controller.lastUpdated = new Date().getTime();
-      controller.nextUpdate = controller.lastUpdated + cycleTime;
-      if (!!controller.timer) {
-        clearTimeout(controller.timer);
-        controller.sync(controller);
-      }
-      return controller.emit('update');
-    }
+        // if we have already connected with this controller
+        // do some processing but dont create a new controller reference
+        if (!!self.controllers[mac]) {
+            // grab a reference to the controller instance
+            controller = self.controllers[mac];
+            // insure proper device type from message (looking for '2')
+            if (controller.params.deviceType !== 2) return;
 
-    params = { macAddress   : mac
-             , ipAddress    : message.slice(6, 10).toString('hex').match(/.{2}/g)
-                                     .map(function(x) { return parseInt(x, 16); }).join('.')
-             , deviceType   : message[10]
-             , protocolVrsn : message[11]
-             , vendorID     : message.readUInt16LE(12)
-             , productID    : message.readUInt16LE(14)
-             , hardwareRev  : message.readUInt16LE(16)
-             , softwareRev  : message.readUInt16LE(18)
-             , linkSpeed    : message.readUInt32LE(20)
+            // capture the cycle time presented in the message and convert to sec
+            // starts at position 28.
+            cycleTime = message.readUInt32LE(28) / 1000;
+            // and the delta
+            delta = message.readUInt32LE(36);
 
-             , socket       : this
-             };
-    if (params.deviceType !== 2) params.payload = message.slice(24).toString('hex');
-    else {
-      params.pixelpusher = { numberStrips   : message[24]
-                           , stripsPerPkt   : message[25]
-                           , pixelsPerStrip : message.readUInt16LE(26)
-                           , updatePeriod   : message.readUInt32LE(28) / 1000
-                           , powerTotal     : message.readUInt32LE(32)
-                           , deltaSequence  : message.readUInt32LE(36)
-                           , controllerNo   : message.readInt32LE(40)
-                           , groupNo        : message.readInt32LE(44)
-                           };
 
-      if (message.length >= 54) {
-        params.pixelpusher.artnetUniverse   = message.readUInt16LE(48);
-        params.pixelpusher.artnetChannel    = message.readUInt16LE(50);
-        params.pixelpusher.myPort           = message.readUInt16LE(52);
-      }
-      else {
-        params.pixelpusher.myPort           = 9761;
-      }
+            if (delta > 5) {
+                // if there was a long delta period trim
+                // any build up of messages off the queue
+                cycleTime += 5;
+                controller.trimStaleMessages(controller);
+            } else if ((delta === 0) && (cycleTime > 1)) {
+                cycleTime -= 1;
+            }
 
-      if (message.length >= 62) {
-        params.pixelpusher.stripFlags       = message.slice(54, 62).toString('hex').match(/.{2}/g)
-                                                     .map(function(x) { return parseInt(x, 16); });
-      }
+            controller.params.pixelpusher.updatePeriod = cycleTime;
+            controller.params.pixelpusher.powerTotal = message.readUInt32LE(32);
+            controller.params.pixelpusher.deltaSequence = delta;
+            controller.lastUpdated = new Date().getTime();
+            controller.nextUpdate = controller.lastUpdated + cycleTime;
 
-      if (message.length >= 66) {
-        params.pixelpusher.pusherFlags      =   message.readInt32LE(62);
-      }
-    }
+            if (!!controller.timer) {
+                clearTimeout(controller.timer);
+                controller.sync(controller);
+            }
+            return controller.emit('update');
+        }
 
-    self.controllers[mac] = new Controller(params);
-    self.emit('discover', self.controllers[mac]);
-  }).on('listening', function() {
-    self.logger.info('PixelPusher listening on udp://*:' + this.address().port);
-  }).on('error', function(err) {
-    self.logger.error('PixelPusher error', err);
-    self.emit('error', err);
-  }).bind(7331);
 
-  setInterval(function() {
-    var controller, mac, now;
+        // this is a newly discovered controller
+        var ipAddress = message
+                            .slice(6, 10).toString('hex').match(/.{2}/g)
+                            .map(function(x) { return parseInt(x, 16); }).join('.');
+        console.log('PixelPusher discovered at ip address ['+ipAddress+']');
 
-    now = new Date().getTime();
-    for (mac in self.controllers) {
-      if (!self.controllers.hasOwnProperty(mac)) continue;
-      controller = self.controllers[mac];
+        params = {
+            macAddress   : mac,
+            ipAddress    : ipAddress,
+            deviceType   : message[10],
+            protocolVrsn : message[11],
+            vendorID     : message.readUInt16LE(12),
+            productID    : message.readUInt16LE(14),
+            hardwareRev  : message.readUInt16LE(16),
+            softwareRev  : message.readUInt16LE(18),
+            linkSpeed    : message.readUInt32LE(20),
+            socket       : this
+        };
+        // if the device type specified does not
+        // match PP expected then simply stick the message
+        // in a payload parameter which can be later read
+        if (params.deviceType !== 2) {
+            params.payload = message.slice(24).toString('hex');
+        } else {
+            // read the pixel pusher configuration from the inbound message
+            // the indicies are buffer positions of the coorisponding values
+            params.pixelpusher = {
+                numberStrips   : message[24],
+                stripsPerPkt   : message[25],
+                pixelsPerStrip : message.readUInt16LE(26),
+                updatePeriod   : message.readUInt32LE(28) / 1000,
+                powerTotal     : message.readUInt32LE(32),
+                deltaSequence  : message.readUInt32LE(36),
+                controllerNo   : message.readInt32LE(40),
+                groupNo        : message.readInt32LE(44),
+            };
 
-      if ((controller.lastUpdated + (5 * 1000)) >= now) continue;
+            // if the message is long enough to contain the extra parameters
+            // assume them and store.
+            if (message.length >= 54) {
+                params.pixelpusher.artnetUniverse   = message.readUInt16LE(48);
+                params.pixelpusher.artnetChannel    = message.readUInt16LE(50);
+                params.pixelpusher.myPort           = message.readUInt16LE(52);
+            } else {
+                // otherwise it is just the port that was sent.
+                params.pixelpusher.myPort = 9761;
+            }
 
-      controller.emit('timeout');
-      if (!!controller.timer) clearTimeout(controller.timer);
-      delete(self.controllers[mac]);
-    }
-  }, 1000);
+            // again if the message is long engough assume the following parameters
+            if (message.length >= 62) {
+                params.pixelpusher.stripFlags = message
+                                                    .slice(54, 62).toString('hex').match(/.{2}/g)
+                                                    .map(function(x) { return parseInt(x, 16); });
+            }
+
+            // final flags on the tail of the message
+            if (message.length >= 66) {
+                params.pixelpusher.pusherFlags      =   message.readInt32LE(62);
+            }
+        }
+        // build the controller object and keep a hash lookup of it
+        // by mac address so we can locate it on future messages
+        self.controllers[mac] = new Controller(params);
+        // emit to any listeners that we have discovered a new controller
+        self.emit('discover', self.controllers[mac]);
+    }).on('listening', function() {
+        // log that the socket listener has begun listening
+        self.logger.info('Socket listening for pixel pusher on udp://*:' + this.address().port);
+    }).on('error', function(err) {
+        self.logger.error('Error opening socket to detect PixelPusher', err);
+        self.emit('error', err);
+    }).bind(LISTENER_SOCKET_PORT);
+
+    setInterval(function() {
+        var controller = null,
+            mac = null;
+        var now = new Date().getTime();
+
+        for (mac in self.controllers) {
+            // grab a reference to the controller
+            controller = self.controllers[mac];
+
+            // if this controller is empty skip it.
+            if (!controller) {
+                // clear it from the controller cache so we dont need
+                // to look at it again.
+                delete self.controllers[mac];
+                continue;
+            }
+
+            // if this controller was updated in the last threshold then
+            // continue. otherwise consider the controller as timed out
+            if ((controller.lastUpdated + CONTROLLER_TIMEOUT_THRESHOLD_MILLIS) < now){
+                //inform listeners that the controller has timed out
+                controller.emit('timeout');
+                // incase there is any timer set clear it.
+                if (!!controller.timer) clearTimeout(controller.timer);
+                // remove the controller ref from our local cache
+                delete(self.controllers[mac]);
+            }
+        }
+    }, TIMEOUT_CHECK_MILLIS);
 };
+// build the PP obj to contain the necessary EventEmitter methods
 util.inherits(PixelPusher, Emitter);
 
 var Controller = function(params) {
-  var i;
+    var i;
+    var that = this;
 
-  var self = this;
+    if (!(that instanceof Controller)) return new Controller(params);
 
-  if (!(self instanceof Controller)) return new Controller(params);
+    that.params = params;
+    that.logger = DEFAULT_LOGGER;
 
-  self.params = params;
-  self.logger = DEFAULT_LOGGER;
+    that.lastUpdated = new Date().getTime();
+    that.nextUpdate = that.lastUpdated + that.params.pixelpusher.updatePeriod;
 
-  self.lastUpdated = new Date().getTime();
-  self.nextUpdate = self.lastUpdated + self.params.pixelpusher.updatePeriod;
+    that.sequenceNo = 1;
+    that.messages = [];
+    that.timer = null;
 
-  self.sequenceNo = 0;
-  self.messages = [];
-  self.timer = null;
+    that.currentStripData = [];
 
-  self.strips = [];
-  for (i = 0; i < self.params.pixelpusher.numberStrips; i++) self.strips.push(new Buffer(0));
+    for (i = 0; i < that.params.pixelpusher.numberStrips; i++) {
+        that.currentStripData.push({
+            strip_id : i,
+            data : new Buffer(0)
+        });
+    }
 };
+// build the Controller obj to contain the necessary EventEmitter methods
 util.inherits(Controller, Emitter);
 
 Controller.prototype.refresh = function(strips) {
-  var i, m, n, numbers, offset, packet, self, updates;
+    var i,j, m, n, numbers, offset;
 
-  self = this;
+    var packet = null;
+    var stripId = null;
+    var that = this;
+    self = this;
 
-// 0.1.1: do not update strips that haven't changed...
-  updates = [];
-  for (i = 0; i < strips.length; i++) {
-    n = strips[i].number;
-    if ((n < 0) || (n >= self.params.pixelpusher.numberStrips)) {
-      throw new Error('strips must be numbered from 0..' + (self.params.pixelpusher.numberStrips-1+' current value ['+n+']'));
+    // Format checking
+    // and unchanged strip checking
+    var updatedValidStrips = [];
+    for (i = 0; i < strips.length; i++) {
+        stripId = strips[i].stripId;
+
+        // confirm proper strip numbering
+        if ((stripId < 0) || (stripId >= self.params.pixelpusher.numberStrips)) {
+            throw new Error('strips must be numbered from 0..' + (self.params.pixelpusher.numberStrips-1+' current value ['+n+']'));
+        }
+
+        // filter out sending dup data
+        if (that.currentStripData.length>0 && buffertools.equals(strips[i].data, that.currentStripData[i].data)) {
+            continue;
+        }
+
+        // push the valid strip
+        updatedValidStrips.push(strips[i]);
+    }
+    strips = updatedValidStrips;
+    that.currentStripData = strips;
+
+    /*
+    // -- PACKET STRUCTURE --
+    typedef struct pixel _PACKED_ {
+       uint8_t red;
+       uint8_t green;
+       uint8_t blue;
+    } pixel_t;
+
+    // the packet goes like:
+
+    uint32_t sequence_number;  // monotonically ascends, per-pusher.
+    while (packet_not_full_up) {
+       uint8_t strip_number;
+       pixel_t strip_data[NUMBER_OF_PIXELS];  // you must fill at least one entire strip.
+    }
+    */
+
+    // mark the max number of strips we can send per packet
+    var stripsPerPacket = that.params.pixelpusher.stripsPerPkt;
+
+    // we do however need to send all the strip data that was given to us
+    // so get the total strips to be sent
+    var totalStripsToSend = strips.length;
+    // calculate the number of packets this will require
+    var packetsToSend = Math.ceil(totalStripsToSend/stripsPerPacket);
+    // it takes 4 bytes in the stream to denote the packet sequence number
+    var sequenceDenotationLength = 4;
+    // then a single byte to say which strip we are talking to
+    var stripIdDenotationLength = 1;
+
+    // loop through the strips and fill packets with the strip data
+    var stripIdx = 0;
+    for (var packetNum = 0; packetNum<packetsToSend; packetNum++){
+        // initialize the packet
+        packet = null;
+        // calculate how many strips will be in this packet.
+        // not to exceed 'stripsPerPacket'
+        var remaining = totalStripsToSend - stripIdx;
+        var stripsInThisPacket = Math.min(stripsPerPacket, remaining);
+
+        // calculate the length of this data
+        var totalPixelDataLength = 0;
+        for (i = 0; i < stripsInThisPacket; i++) {
+            totalPixelDataLength += stripIdDenotationLength + strips[stripIdx+i].data.length;
+        }
+        // build a buffer of the approiate size
+        var packetLength = sequenceDenotationLength + totalPixelDataLength;
+        packet = new Buffer(packetLength);
+        // initialize the buffer with all 0's
+        packet.fill(0x00);
+
+        // use this 'pointerPosition' to run through the buffer
+        // setting data as needed
+        var pointerPosition = 0;
+        // place the message sequence number as the first value
+        packet.writeUInt32LE(self.sequenceNo, 0);
+        // immeadietly increment it
+        // it does not matter where this value starts
+        // as long as it is always increacing
+        self.sequenceNo++
+        // move for the int32
+        pointerPosition += 4;
+
+        // loop through each strip and set the strip data into the buffer
+        for (i = 0; i < stripsInThisPacket; i++) {
+            var strip = strips[stripIdx];
+            // mark the strip id
+            packet.writeUInt8(stripIdx, pointerPosition);
+            // move for the int32
+            pointerPosition += 1;
+
+            // write the pixel data into the buffer
+            for (j = 0; j < strip.data.length; j++) {
+                packet[pointerPosition] = strip.data[j]
+                pointerPosition++;
+            }
+            // insure we mark we are moving to the next strip
+            stripIdx ++;
+        }
+
+        // after a packet is filled push it into the
+        // queue fr delivery
+        that.messages.push({
+            sequenceNo: self.sequenceNo,
+            packet: packet
+        });
     }
 
-    if (buffertools.equals(strips[i].data, self.strips[n])) continue;
-    if (strips[i].data.length !== self.strips[n].length) self.strips[n] = new Buffer(strips[i].data.length);
-    strips[i].data.copy(self.strips[n]);
-    updates.push(strips[i]);
-  }
-
-  strips = updates;
-
-  packet = null;
-  for (i = 0; i < strips.length; ) {
-    if (packet === null) {
-      n = strips.length - i;
-      if (n > self.params.stripsPerPkt) n = self.params.stripsPerPkt;
-      offset = 4;
-      for (m = 0; m < n; m++) offset += 1 + strips[i + m].data.length;
-      packet = new Buffer(offset);
-      packet.fill(0x00);
-
-      offset = 0;
-      packet.writeUInt32LE(++self.sequenceNo, offset);
-      offset += 4;
-
-      numbers = [];
+    // if we do not have an outstanding timer waiting to send the next packet
+    // then call sync to begin the queue drain.
+    if ((that.timer === null) && (that.messages.length > 0)) {
+        that.sync(self);
     }
-    numbers.push(strips[i].number);
-    packet.writeUInt8(strips[i].number, offset++);
-    strips[i].data.copy(packet, offset);
-    offset += strips[i].data.length;
-
-    if ((++i % self.params.stripsPerPkt) === 0) {
-      self.messages.push({ sequenceNo: self.sequenceNo, packet: packet, numbers: numbers });
-      packet = null;
-    }
-  }
-  if (!!packet) self.messages.push({ sequenceNo: self.sequenceNo, packet: packet, numbers: numbers });
-
-  if ((self.timer === null) && (self.messages.length > 0)) self.sync(self);
 };
+
 
 Controller.prototype.sync = function(self) {
-  var message, now, packet;
+    var message, now, packet;
 
-  now = new Date().getTime();
-  if (now < self.nextUpdate) {
-    self.timer = setTimeout(function() { self.sync(self); }, self.nextUpdate - now);
-    return;
-  }
-  self.timer = null;
+    now = new Date().getTime();
+    if (now < self.nextUpdate) {
+        self.timer = setTimeout(function() {
+            self.sync(self);
+        }, self.nextUpdate - now);
+        return;
+    }
+    self.timer = null;
 
-  message = self.messages.shift();
-  packet = message.packet;
-  self.params.socket.send(packet, 0, packet.length, self.params.pixelpusher.myPort, self.params.ipAddress);
-  self.nextUpdate = now + self.params.pixelpusher.updatePeriod;
-  if (self.messages.length === 0) return;
+    // remove the first item from the messages queue
+    message = self.messages.shift();
+    // get a ref to the packet
+    packet = message.packet;
+    // send the packet over the socket/port/dest ip
+    self.params.socket.send(packet, 0, packet.length, self.params.pixelpusher.myPort, self.params.ipAddress);
 
-  self.timer = setTimeout(function() { self.sync(self); }, self.params.pixelpusher.updatePeriod);
+    // mark when we need to send the next update
+    self.nextUpdate = now + self.params.pixelpusher.updatePeriod;
+
+    // if there are no more messages to send then
+    // dont re set the drain timeout
+    if (self.messages.length === 0) return;
+
+    // we have more messages so set another time out to drain the queue
+    // dont exceed 'updatePeriod'
+    self.timer = setTimeout(function() {
+        self.sync(self);
+    }, self.params.pixelpusher.updatePeriod);
 };
 
-Controller.prototype.trim = function(self) {
-  var f, i, j, messages, numbers, x;
+Controller.prototype.trimStaleMessages = function(controller) {
+    var f, i, j, messages, numbers, x;
 
-  if (self.messages.length < 2) return;
-
-  f = function(j) {
-    return function() { return numbers.filter(function(n) { return (self.messages[j].numbers.indexOf(n) !== -1); }); };
-  };
-
-  messages = [];
-  for (i = 0; i < self.messages.length; i++) {
-    numbers = self.messages[i].numbers;
-    for (j = i + 1; j < self.messages.length; j++) {
-      x = f(j);
-      if (x.length > 0) break;
-    }
-    if (j === self.messages.length) messages.push(self.messages[i]);
-  }
-  self.messages = messages;
+    // if we only have 2 messages which would most likely coorispond to
+    // 2 4 strip command then ignore this trip and let the drain timer
+    // push these to the strips
+    if (controller.messages.length < 2) return;
+    // simple trim to the latest 2 packets
+    controller.messages = controller.messages.slice(0,2);
 };
 
 module.exports = PixelPusher;
