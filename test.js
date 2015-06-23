@@ -1,5 +1,5 @@
 var PixelPusher = require('./pixelpusher');
-var PixelStrip = require('./PixelStrip');
+var PixelStrip = require('./pixelstrip');
 
 new PixelPusher().on('discover', function(controller) {
     var timer = null;
