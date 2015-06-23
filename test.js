@@ -34,7 +34,7 @@ new PixelPusher().on('discover', function(controller) {
     var PIXELS_PER_STRIP = controller.params.pixelpusher.pixelsPerStrip;
 
     // create a loop that will send commands to the PP to update the strip
-    var UPDATE_FREQUENCY_MILLIS = 15; // 15 is just faster than 60 FPS
+    var UPDATE_FREQUENCY_MILLIS = 30; // 15 is just faster than 60 FPS
 
 
     timer = setInterval(function() {
