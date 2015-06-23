@@ -8,6 +8,9 @@ var buffertools = require('buffertools'),
     Emitter     = require('events').EventEmitter,
     util        = require('util');
 
+var Pixel      = require('./pixel');
+var PixelStrip = require('./pixelstrip');
+
 
 var LISTENER_SOCKET_PORT = 7331;
 var CONTROLLER_TIMEOUT_THRESHOLD_MILLIS = 5000;
@@ -17,7 +20,6 @@ var PixelPusher = function(options) {
     var that = this;
 
     if (!(that instanceof PixelPusher)) return new PixelPusher(options);
-
     that.options = options;
     that.controllers = {};
 
@@ -377,6 +379,8 @@ Controller.prototype.trimStaleMessages = function(controller) {
     controller.messages = controller.messages.slice(0,2);
 };
 
+PixelPusher.PixelStrip = PixelStrip;
+PixelPusher.Pixel = Pixel;
 module.exports = PixelPusher;
 
 return;
