@@ -1,8 +1,9 @@
 {
-    "name"           : "pixelpusher",
-    "version"        : "0.1.1",
-    "description"    : "node.js module for the Heroic Robotics' Pixel Pusher LED controller",
-    "author"         : [
+    "name"           : "heroic-pixel-pusher",
+    "version"        : "0.2.0",
+    "description"    : "Heroic Robotics' Pixel Pusher LED controller node js interface",
+    "author"         : "Aaron Jones <aaron@inburst.io>",
+    "contributors"         : [
         {
             "name"         : "Aaron Jones",
             "email"        : "aaron@inburst.io"
@@ -14,12 +15,13 @@
     ],
     "repository"   : {
         "type" : "git",
-        "url" : "https://github.com/TheThingSystem/node-pixelpusher.git"
+        "url" : "https://github.com/ajones/node-pixelpusher.git"
     },
-    "bugs" : {
-        "url" : "https://github.com/TheThingSystem/node-pixelpusher/issues"
-    },
-    "keywords"       : [ "Pixelpusher", "Heroic Robotics", "Pixel Pusher" ],
+    "keywords"       : [
+        "Pixelpusher",
+        "Heroic Robotics",
+        "Pixel Pusher"
+    ],
     "main"           : "./pixelpusher.js",
     "engines"        : {
         "node"         : ">=0.8"
@@ -27,5 +29,6 @@
     "dependencies"   : {
         "buffertools"  : "2.1.2"
     },
-    "readmeFilename" : "README.md"
+    "readmeFilename" : "README.md",
+    "license": "MIT"
 }
