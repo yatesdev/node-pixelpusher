@@ -152,15 +152,15 @@ var PixelPusher = function(options) {
             mac = null;
         var now = new Date().getTime();
 
-        for (mac in self.controllers) {
+        for (mac in that.controllers) {
             // grab a reference to the controller
-            controller = self.controllers[mac];
+            controller = that.controllers[mac];
 
             // if this controller is empty skip it.
             if (!controller) {
                 // clear it from the controller cache so we dont need
                 // to look at it again.
-                delete self.controllers[mac];
+                delete that.controllers[mac];
                 continue;
             }
 
@@ -172,7 +172,7 @@ var PixelPusher = function(options) {
                 // incase there is any timer set clear it.
                 if (!!controller.timer) clearTimeout(controller.timer);
                 // remove the controller ref from our local cache
-                delete(self.controllers[mac]);
+                delete(that.controllers[mac]);
             }
         }
     }, TIMEOUT_CHECK_MILLIS);
@@ -213,7 +213,7 @@ Controller.prototype.refresh = function(strips) {
     var packet = null;
     var stripId = null;
     var that = this;
-    self = this;
+    that = this;
 
     // Format checking
     // and unchanged strip checking
@@ -222,8 +222,8 @@ Controller.prototype.refresh = function(strips) {
         stripId = strips[i].stripId;
 
         // confirm proper strip numbering
-        if ((stripId < 0) || (stripId >= self.params.pixelpusher.numberStrips)) {
-            throw new Error('strips must be numbered from 0..' + (self.params.pixelpusher.numberStrips-1+' current value ['+n+']'));
+        if ((stripId < 0) || (stripId >= that.params.pixelpusher.numberStrips)) {
+            throw new Error('strips must be numbered from 0..' + (that.params.pixelpusher.numberStrips-1+' current value ['+n+']'));
         }
 
         // filter out sending dup data
@@ -292,11 +292,11 @@ Controller.prototype.refresh = function(strips) {
         // setting data as needed
         var pointerPosition = 0;
         // place the message sequence number as the first value
-        packet.writeUInt32LE(self.sequenceNo, 0);
+        packet.writeUInt32LE(that.sequenceNo, 0);
         // immeadietly increment it
         // it does not matter where this value starts
         // as long as it is always increacing
-        self.sequenceNo++
+        that.sequenceNo++
         // move for the int32
         pointerPosition += 4;
 
@@ -320,7 +320,7 @@ Controller.prototype.refresh = function(strips) {
         // after a packet is filled push it into the
         // queue fr delivery
         that.messages.push({
-            sequenceNo: self.sequenceNo,
+            sequenceNo: that.sequenceNo,
             packet: packet
         });
     }
@@ -328,42 +328,42 @@ Controller.prototype.refresh = function(strips) {
     // if we do not have an outstanding timer waiting to send the next packet
     // then call sync to begin the queue drain.
     if ((that.timer === null) && (that.messages.length > 0)) {
-        that.sync(self);
+        that.sync(that);
     }
 };
 
 
-Controller.prototype.sync = function(self) {
+Controller.prototype.sync = function(controller) {
     var message, now, packet;
 
     now = new Date().getTime();
-    if (now < self.nextUpdate) {
-        self.timer = setTimeout(function() {
-            self.sync(self);
-        }, self.nextUpdate - now);
+    if (now < controller.nextUpdate) {
+        controller.timer = setTimeout(function() {
+            controller.sync(controller);
+        }, controller.nextUpdate - now);
         return;
     }
-    self.timer = null;
+    controller.timer = null;
 
     // remove the first item from the messages queue
-    message = self.messages.shift();
+    message = controller.messages.shift();
     // get a ref to the packet
     packet = message.packet;
     // send the packet over the socket/port/dest ip
-    self.params.socket.send(packet, 0, packet.length, self.params.pixelpusher.myPort, self.params.ipAddress);
+    controller.params.socket.send(packet, 0, packet.length, controller.params.pixelpusher.myPort, controller.params.ipAddress);
 
     // mark when we need to send the next update
-    self.nextUpdate = now + self.params.pixelpusher.updatePeriod;
+    controller.nextUpdate = now + controller.params.pixelpusher.updatePeriod;
 
     // if there are no more messages to send then
     // dont re set the drain timeout
-    if (self.messages.length === 0) return;
+    if (controller.messages.length === 0) return;
 
     // we have more messages so set another time out to drain the queue
     // dont exceed 'updatePeriod'
-    self.timer = setTimeout(function() {
-        self.sync(self);
-    }, self.params.pixelpusher.updatePeriod);
+    controller.timer = setTimeout(function() {
+        controller.sync(controller);
+    }, controller.params.pixelpusher.updatePeriod);
 };
 
 Controller.prototype.trimStaleMessages = function(controller) {
