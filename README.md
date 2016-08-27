@@ -68,7 +68,7 @@ Using The Library :
         // loop
         var strips = [];
         for (var stripId = 0; stripId< NUM_STRIPS; stripId ++){
-            var s = new PixelStrip(stripId,PIXELS_PER_STRIP);
+            var s = new PixelPusher.PixelStrip(stripId,PIXELS_PER_STRIP);
             // set a random pixel blue
             s.getRandomPixel().setColor(0,0,255, 0.1);
             // render the strip data into the correct format for sending

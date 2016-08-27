@@ -228,8 +228,7 @@ Controller.prototype.refresh = function(strips) {
             throw new Error('strips must be numbered from 0..' + (that.params.pixelpusher.numberStrips-1+' current value ['+n+']'));
         }
 
-        // filter out sending dup data
-        if (that.currentStripData.length>0 && buffertools.equals(strips[i].data, that.currentStripData[i].data)) {
+        if (that.currentStripData.length>0 && that.currentStripData[i] && buffertools.equals(strips[i].data, that.currentStripData[i].data)) {
             continue;
         }
 
